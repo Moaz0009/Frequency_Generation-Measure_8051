@@ -1,0 +1,417 @@
+ ORG 00
+		; FIRST DIGIT STORED IN 40H
+		; SECOND DIGIT STORED IN 41H
+		; THIRD DIGIT STORED IN 42H
+	MOV 50H,#253          ; INNER LOOP OF HZ [1-50HZ]
+	MOV 60H,#212          ;1K-4K LOOP
+	ACALL INTIALIZER      ;MAKE THE LCD READY TO DISPLAY
+	ACALL STA             ;DISPLAY "CHOOSING THE OPERATING MODE" ON LCD
+	ACALL GEN             ;SHOWING "GENERATION" ON LCD
+	ACALL MEA             ;SHOWING "MEASURING" ON LCD
+	;------------------------------------------------------------------------------------
+	START_AGAIN:            ; CHOOSE TO MEASURE OR TO GENERATE
+	ACALL KEY_PAD
+	CJNE A,#'M',GENERATOR  ;  IF YOU DIDNOT CHOOSE M FOR MEASURE THEN GO TO GENERATE
+	ACALL INTIALIZER       ; YOU ALREADY CHOOSED MEASURE 'BY COUNTER 1'
+	MOV TMOD,#11010001B  ; TIMER1 AS A COUNTER , TIMER0 AS A TIMER
+	SETB P3.5            ; INTIALIZE INPUT,I1,SOURCE OF CLOCK
+	MOV TH1,#0        
+	MOV TL1,#0
+	SETB TR1             
+	ACALL DELAY_1_SEC       ; FR=CYCLES PER 1SEC
+	CLR TR1
+	MOV A,TH1              
+	JZ N_OUT_RANGE            ; IF THE HIGH PART IS ZERO
+	LJMP OUT_RANGE         
+	;--------------------------------------------------------------
+	N_OUT_RANGE:            ; LIMIT 255 , MAY BE 1 DIGIT,OR 2,OR 3
+	MOV A,TL1
+	CJNE A,#10,TWO1         ; CHECK IF ONE DIGIT?????   
+	SJMP CERTAIN_TWO        ;A=10 ,10 IS TWO DIGITS
+   	TWO1: JNC MAYBE_TWO     ;C TELL IF NUM >10 OR <10 , IF C=0 THEN A >10 , MAY BE 2 OR 3 DIGIT WE NEED TO CHECK
+	SJMP CERTAIN_ONE        ; C=1 THEN A<10, SURE THAT ONE DIGIT
+	MAYBE_TWO:
+	CJNE A,#100,MAYBE_2_OR_3 ; 100 IS 3 DIGIT 
+
+	MAYBE_2_OR_3:
+	JC CERTAIN_TWO   ; IF C=1 THEN A< 100 ,SURE 2 DIGIT
+	MOV B,#100       ; C=0 THEN SURE 3 DIGIT 
+	DIV AB ; A=1 B=20
+	ORL A,#30H
+	ACALL DATAA
+	MOV A,B
+	CERTAIN_TWO:
+	MOV B,#10
+	DIV AB
+	ORL A,#30H
+	ACALL DATAA
+	MOV A,B
+	ORL A,#30H
+	ACALL DATAA
+	SJMP START_AGAIN
+	CERTAIN_ONE:
+	ORL A,#30H
+	ACALL DATAA
+	SJMP START_AGAIN
+	;--------------------------------------------------------------------------------------	
+	ERROR8:LCALL ERROR ; WILL ONLY GET HERE IF THE INPUT IS NEITHER 'M' NOR 'G'
+	SJMP START_AGAIN
+	;--------------------------------------------------------------------------
+	GENERATOR:
+	CJNE A,#'G',ERROR8 ; GENERATION PART
+    ACALL INTIALIZER
+    ; FIRST INPUT , MUST BE A NUMBER	
+	
+    ACALL KEY_PAD ; READ FIRST DIGIT
+	ACALL DATAA   ; SHOW ON LCD
+	ANL A,#0FH    ; MASK TO GET THE REAL NUM
+	MOV 40H,A	  ; STORE AS A REAL VALUE
+	
+	; SECOND INPUT, MAYBE A NUMBER OR 'HZ' OR 'KHZ'
+	
+	ACALL KEY_PAD
+	
+	CJNE A,#'H',NEXT_CHECK ; CHECK IF THE USER IS FINISHED AND WANT A FREQ IN HZ
+
+	MOV A,#'H'  ;SECOND IS H
+	ACALL DATAA
+	MOV A,#'Z'
+	ACALL DATAA
+	MOV B,40H  ; FIRST DIGIT 
+	MOV A,#253 ;
+	DIV AB 
+	MOV 50H,A
+	ACALL FREQ_OUT
+	
+	NEXT_CHECK:CJNE A,#'K',NEXT_NUMBER ; CHECK IF THE USER IS FINISHED AND WANT A FREQ IN KHZ
+	MOV A,#'K'  ; SECOND IS K
+	ACALL DATAA
+	MOV A,#'H'
+	ACALL DATAA
+	MOV A,#'Z'
+	ACALL DATAA
+	MOV A,40H  ; FIRST DIGIT 
+	CJNE A,#5,IMPROVE  ;IMPROVE OUR BASE NUMBER FOR A MORE ACCURATE OUTPUT
+	MOV 60H,#207   
+	SJMP CONT
+	IMPROVE: JC CONT   ; C=1,A<5 
+	CJNE A,#6,IMPROVE0  ; A>5 , IMPROVE OUR BASE NUMBER FOR A MORE ACCURATE OUTPUT
+	IMPROVE0: MOV 60H,#205
+	CONT:
+	MOV B,40H
+    MOV A,60H
+    DIV AB
+	DEC A
+    MOV 60H,A
+    ACALL FREQ_K_OUT
+	NEXT_NUMBER:              ; SECOND DIGIT  
+	ACALL DATAA
+	ANL A,#0FH
+	MOV 41H,A ; STORE AS A REAL VALUE
+	
+	; THIRD INPUT, MAYBE A NUMBER OR 'HZ' OR 'KHZ'
+
+	ACALL KEY_PAD
+	
+	CJNE A,#'H',NEXT_CHECK_1 ; CHECK IF THE USER IS FINISHED AND WANT A FREQ IN HZ
+	MOV A,#'H'
+	ACALL DATAA
+	MOV A,#'Z'
+	ACALL DATAA
+	;CALCULATING DELAY PARAMATERS
+	MOV A,40H ;1  
+	MOV B,#10
+	MUL AB ;10
+	MOV B,41H ;0
+	ADD A,B ;10
+
+	MOV B,A 
+	MOV A,#233
+	DIV AB ;25
+
+	MOV 50H,A
+	ACALL FREQ_OUT
+	
+	NEXT_CHECK_1:CJNE A,#'K',NEXT_NUMBER_1 ; CHECK IF THE USER IS FINISHED AND WANT A FREQ IN KHZ
+	MOV A,#'K'
+	ACALL DATAA
+	MOV A,#'H'
+	ACALL DATAA
+	MOV A,#'Z'
+	ACALL DATAA
+	;CALCULATING DELAY PARAMATERS
+	MOV A,40H ;1
+	MOV B,#10
+	MUL AB ;10
+	MOV B,41H ;0
+	ADD A,B ;10
+	MOV B,A 
+	MOV A,#186
+	DIV AB ;25
+	MOV 60H,A
+	ACALL FREQ_K_OUT
+	;------------------------------------------------------------------------
+	;------------------------------------------------------------------------
+	; 3 DIGIT 
+	NEXT_NUMBER_1: 
+	ACALL DATAA
+    ANL A,#0FH
+    MOV 42H,A
+	
+	; FOURTH INPUT, MUST BE 'HZ' 
+	
+	ACALL KEY_PAD
+	
+	CJNE A,#'H',NEXT_CHECK_2 ; CHECK IF THE USER IS FINISHED AND WANT A FREQ IN HZ
+	MOV A,#'H'
+	ACALL DATAA
+	MOV A,#'Z'
+	ACALL DATAA
+	;CALCULATING DELAY PARAMATERS
+	MOV A,40H
+	MOV B,#100
+	MUL AB 
+	MOV 40H,A ;100
+	MOV A,41H 
+	MOV B,#10
+	MUL AB
+	MOV B,40H
+	ADD A,B
+	MOV B,42H
+	ADD A,B
+	MOV B,A
+	MOV A,#203
+	DIV AB
+	MOV 50H,A
+	ACALL FREQ_OUT
+	
+    NEXT_CHECK_2:CJNE A,#'K',INVALID
+	LCALL OUT_RANGE
+	LJMP START_AGAIN
+	INVALID: LCALL ERROR
+	LJMP START_AGAIN
+	;-------------------------------------------------------------------------------------------------------
+	
+    ; 1-SEC DELAY FOR THE COUNTER TO CALCULATE THE FREQ.
+	DELAY_1_SEC:
+	MOV R0,#14
+	AGAINE:
+	MOV TH0,#0
+	MOV TL0,#0
+	SETB TR0
+	HQ:JNB TF0,HQ  ;CHECK THE TIMER FLAG =1 OR NOT
+	CLR TR0
+	CLR TF0
+	DJNZ R0,AGAINE
+	RET
+  ;----------------------------------------------------------------------
+	FREQ_OUT: ; GENERATE A SIGNAL WITH 50% DUTY CYCLE
+	AGAIN8:CPL P3.0
+	ACALL DELAY_1_HZ
+	SJMP AGAIN8
+	RET
+	;----------------------------------------------------
+	FREQ_K_OUT: ; GENERATE A SIGNAL WITH 50% DUTY CYCLE
+	AGAIN80:CPL P3.0
+	ACALL DELAY_1K_HZ
+	SJMP AGAIN80
+	RET
+	;--------------------------------------
+    DELAY_1K_HZ:
+	  MOV R3,60H
+	W:DJNZ R3,W
+      RET
+	;--------------------------------------------------  
+	DELAY_1_HZ:
+	   MOV R7,#5
+	Q2:MOV R6,#180
+	Q1:MOV R5,50H
+	    NOP
+	Q:DJNZ R5,Q
+	  DJNZ R6,Q1
+	  DJNZ R7,Q2
+	  RET	
+	
+	;-------------------------------------------------------------------------------------
+	KEY_PAD:
+	MOV P2,#0FFH ; INPUT
+	NEXT5:
+    ;MOV P2,#0
+	CLR P2.4    ;FOR ROWS
+	CLR P2.5
+	CLR P2.6
+	CLR P2.7
+	NEXT:
+	;MOV A,P3
+	MOV A,P2
+	ANL A,#00001111B  ;MASK THE UPPER NIPPLE
+	CJNE A,#00001111B,NEXT
+	NEXT2:
+	MOV A,P2
+	ANL A,#00001111B
+	CJNE A,#00001111B,OVER
+	SJMP NEXT2
+	OVER:
+    ACALL DELAY 
+	MOV A,P2
+	ANL A,#00001111B
+	CJNE A,#00001111B,OVER2
+	SJMP NEXT2
+	OVER2:
+	;MOV P2,#11101111B
+	SETB P2.7
+	SETB P2.6
+	SETB P2.5
+	CLR  P2.4    ;CLR THE ROW0
+	MOV  A,P2    ;CHECK WHICH COLUMN HAS THE UNPUT
+	ANL  A,#00001111B
+	CJNE A,#00001111B,ROW0
+	;---------------- ROW 1 CHECK 
+	;MOV P2,#11111101B
+	SETB P2.7
+	SETB P2.6
+	CLR  P2.5   ;CLR ROW 1
+	SETB P2.4
+	MOV  A,P2    ;CHECK WHICH COLUMN HAS THE UNPUT
+	ANL  A,#00001111B
+	CJNE A,#00001111B,ROW1
+	;------------ROW 2 CHECK
+	;MOV P2,#11111011B
+	SETB P2.7
+	CLR  P2.6    ;CLR ROW 2
+	SETB P2.5
+	SETB P2.4
+	MOV A,P2
+	ANL A,#00001111B
+	CJNE A,#00001111B,ROW2
+	;------------ROW 3 CHECK
+	;MOV P2,#11110111B
+	CLR  P2.7     ;CLR ROW 3
+	SETB P2.6
+	SETB P2.5
+	SETB P2.4
+	MOV A,P2
+	ANL A,#00001111B
+	CJNE A,#00001111B,ROW3
+	SJMP NEXT2
+	;------------
+	ROW0: MOV DPTR,#KEY0   ;WHICH NUM IN ROW 0
+	SJMP FIND
+	ROW1: MOV DPTR,#KEY1   ;WHICH NUM IN ROW 1
+	SJMP FIND
+	ROW2: MOV DPTR,#KEY2   ;WHICH NUM IN ROW 2
+	SJMP FIND
+	ROW3: MOV DPTR,#KEY3   ;WHICH NUM IN ROW 3
+	SJMP FIND
+	FIND:
+	RRC A
+	JNC MATCH
+	INC DPTR
+	SJMP FIND
+	MATCH: CLR A
+	MOVC A,@A+DPTR
+	RET
+;----------------------------DELAY OF KEYPAD-------------------------------------------   
+   DELAY:
+	MOV R3,#50
+	H1:MOV R4,#255
+	H: DJNZ R4,H
+	 DJNZ R3,H1
+	 RET
+	 ;----------------------------------------------------------------
+	 COM: MOV P1,A
+    CLR P0.1
+    SETB P0.0
+    CLR P0.0
+    ACALL DELAY
+    RET
+	;-----------------------------------------------------------------------
+	DATAA:
+	MOV P1,A   ; OUTPUT PORT TO LCD
+	SETB P0.1  ;RS=1,DISPLAY DATA
+    SETB P0.0  ;E=1
+    CLR P0.0    ;E=0, HIGH TO LOW PULSE
+    ACALL DELAY  
+    RET
+	
+	;---------------------------------------------------------------------------------------------------------
+    INTIALIZER:  ;MAKE THE LCD READY TO DISPLAY
+	MOV A,#38H
+	ACALL COM
+	MOV A,#0EH
+	ACALL COM
+	MOV A,#01H
+	ACALL COM
+	RET
+	;---------------------------------------------------------------------------------------------------------
+	STA: ; SHOWING "CHOOSING THE OPERATING MODE" ON LCD
+	
+	MOV DPTR,#START1  ;DISPLAY "CHOOSE THE OPERATION MODE "
+	B1:CLR A
+	MOVC A,@A+DPTR
+	CJNE A,#0,FIN; A NOT = 0 THEN A='SYN ERR'
+	RET
+	FIN: ACALL DATAA
+	INC DPTR
+	SJMP B1
+	;------------------------------------------------------------------------------------------------------------
+	GEN:          ;SHOWING "GENERATION" ON LCD
+	MOV A,#0BFH    ; FORCE CURSOR TO BEGIN TO 2ND LINE ;SECOND LINE C0H  ??///////
+	ACALL COM
+	MOV DPTR,#GENERATE
+	B10:CLR A
+	MOVC A,@A+DPTR
+	CJNE A,#0,FIN0; A NOT = 0 THEN A='SYN ERR'
+	RET
+	FIN0: ACALL DATAA
+	INC DPTR
+	SJMP B10
+	;------------------------------------------------------------------------------------------------------
+	MEA:          ;SHOWING "MEASURING" ON LCD
+	MOV A,#' '
+	ACALL DATAA
+	
+	MOV DPTR,#MEASURE
+	B11:CLR A
+	MOVC A,@A+DPTR
+	CJNE A,#0,FIN1    ; A = 0 THEN A='SYN ERR'?????????
+	RET
+	FIN1: ACALL DATAA
+	INC DPTR
+	SJMP B11
+ ;--------------------------------------------------------------------------------------------------------------
+    
+	;-------------------------------------------------------------
+		
+	ERROR:         ; ERROR MESSAGE
+	ACALL INTIALIZER
+	MOV DPTR,#ERROR_MESSAGE
+	B111:CLR A
+	MOVC A,@A+DPTR
+	CJNE A,#0,FIN10     ; (A) NOT = 0 THEN "INVALID INPUT" MESSAGE ISN'T FINISHED
+	RET
+	FIN10: ACALL DATAA
+	INC DPTR
+	SJMP B111
+	;---------------------------------------------------------------------------------
+	OUT_RANGE:         ; ERROR MESSAGE
+	ACALL INTIALIZER   
+	MOV DPTR,#O_RANGE  ;DISPLAY OUT OF RANGE 
+	B1110:CLR A
+	MOVC A,@A+DPTR
+	CJNE A,#0,FIN100    ; (A) NOT = 0 THEN "OUT OF RANGE" MESSAGE ISN'T FINISHED
+	LJMP START_AGAIN    ; ERROR MESSAGE DONE
+	FIN100: ACALL DATAA
+	INC DPTR
+	SJMP B1110
+	
+	KEY0: DB '1','2','3','H'
+	KEY1: DB '4','5','6','K'
+	KEY2: DB '7','8','9','G'
+	KEY3: DB 'C','0','=','M'
+	START1: DB "CHOOSE OP MODE",0
+	GENERATE: DB " GENER.",0
+	MEASURE: DB "MEAS.",0
+    ERROR_MESSAGE: DB "INVALID INPUT",0
+	O_RANGE: DB "OUT OF RANGE",0
+		END
